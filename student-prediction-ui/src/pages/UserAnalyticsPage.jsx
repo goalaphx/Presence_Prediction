@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import * as api from '../services/apiService';
-import { Form, Table, Spinner, Card, Row, Col } from 'react-bootstrap';
-import { BsBarChartLineFill, BsPeopleFill, BsPersonCheckFill, BsCalendarWeek, BsInfoCircleFill, BsExclamationTriangleFill } from 'react-icons/bs';
+import { Form, Table, Spinner, Card, Row, Col, Button } from 'react-bootstrap';
+import { BsBarChartLineFill, BsPeopleFill, BsPersonCheckFill, BsCalendarWeek, BsInfoCircleFill, BsExclamationTriangleFill, BsChevronDown, BsChevronUp } from 'react-icons/bs';
 
 const StatCard = ({ title, value, icon }) => (
     <Card className="custom-card stat-card">
@@ -15,16 +16,37 @@ const StatCard = ({ title, value, icon }) => (
     </Card>
 );
 
+const AttendanceProgressBar = ({ rate }) => {
+    const percentage = (rate * 100).toFixed(1);
+    return (
+        <div className="attendance-progress-bar" title={`${percentage}%`}>
+            <div className="attendance-progress-bar-inner" style={{ width: `${percentage}%` }}>
+                {percentage}%
+            </div>
+        </div>
+    );
+};
+
 const UserAnalyticsPage = () => {
+    const [searchParams] = useSearchParams();
     const [users, setUsers] = useState([]);
     const [selectedUser, setSelectedUser] = useState('');
     const [stats, setStats] = useState(null);
     const [performance, setPerformance] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [showAll, setShowAll] = useState(false);
+    const PREVIEW_COUNT = 5;
 
     useEffect(() => {
         api.getUsers().then(setUsers).catch(err => setError('Could not fetch users.'));
+    }, []);
+
+    useEffect(() => {
+        const userFromUrl = searchParams.get('user');
+        if (userFromUrl) {
+            setSelectedUser(userFromUrl);
+        }
     }, []);
 
     useEffect(() => {
@@ -33,7 +55,7 @@ const UserAnalyticsPage = () => {
             setPerformance([]);
             return;
         }
-        
+        setShowAll(false);
         setLoading(true);
         setError('');
         const fetchUserData = async () => {
@@ -78,6 +100,11 @@ const UserAnalyticsPage = () => {
                 </div>
              );
         }
+
+        // ===================================================================
+        // === THIS IS THE CRUCIAL FIX, RESTORING YOUR ORIGINAL LOGIC      ===
+        // We must check if `stats` is null before trying to render with it.
+        // ===================================================================
         if (!stats) {
              return (
                 <div className="feedback-container">
@@ -86,6 +113,9 @@ const UserAnalyticsPage = () => {
                 </div>
             );
         }
+        
+        const displayedPerformance = showAll ? performance : performance.slice(0, PREVIEW_COUNT);
+
         return (
              <>
                 <h4 className="mb-3" style={{fontWeight: 500}}>Overall Record for User {selectedUser}</h4>
@@ -98,28 +128,44 @@ const UserAnalyticsPage = () => {
                 <Card className="custom-card">
                     <Card.Header as="h5">Performance per Meeting</Card.Header>
                     <Card.Body>
-                        <Table hover responsive className="custom-table">
-                            <thead>
-                                <tr>
-                                    <th>Meeting Title</th>
-                                    <th>Scheduled Day</th>
-                                    <th>Scheduled Time</th>
-                                    <th>Attendees</th>
-                                    <th>Class Attendance Rate</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {performance.map((p, index) => (
-                                    <tr key={index}>
-                                        <td><strong>{p.meeting_title}</strong></td>
-                                        <td>{p.scheduled_day}</td>
-                                        <td>{p.scheduled_time}</td>
-                                        <td>{p.attendees_string}</td>
-                                        <td>{(p.class_attendance_rate * 100).toFixed(1)}%</td>
+                        {performance.length > 0 ? (
+                            <Table hover responsive className="custom-table">
+                                <thead>
+                                    <tr>
+                                        <th>Meeting Title</th>
+                                        <th>Scheduled Day</th>
+                                        <th>Attendees</th>
+                                        <th style={{minWidth: '150px'}}>Class Attendance Rate</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </Table>
+                                </thead>
+                                <tbody>
+                                    {displayedPerformance.map((p, index) => (
+                                        <tr key={index}>
+                                            <td><strong>{p.meeting_title}</strong></td>
+                                            <td>{p.scheduled_day}</td>
+                                            <td>{p.attendees_string}</td>
+                                            <td>
+                                                <AttendanceProgressBar rate={p.class_attendance_rate} />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </Table>
+                        ) : (
+                            <div className="text-center p-4">No meeting performance data available for this user.</div>
+                        )}
+                        
+                        {performance.length > PREVIEW_COUNT && (
+                            <div className="text-center mt-3">
+                                <Button variant="outline-primary" onClick={() => setShowAll(!showAll)}>
+                                    {showAll ? (
+                                        <><BsChevronUp /> Show Less</>
+                                    ) : (
+                                        <><BsChevronDown /> Show All ({performance.length}) Records</>
+                                    )}
+                                </Button>
+                            </div>
+                        )}
                     </Card.Body>
                 </Card>
              </>

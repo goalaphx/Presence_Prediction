@@ -10,11 +10,10 @@ class UserAnalyticsController extends Controller
 {
     /**
      * Get a list of all users for the analytics dropdown.
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function index()
     {
+        // This function is simple and correct. No changes needed.
         $users = DB::table('parcour_group_pivot')
             ->select('user_id as id')
             ->distinct()
@@ -26,88 +25,107 @@ class UserAnalyticsController extends Controller
 
     /**
      * Get the overall statistics for a single user.
-     * (Total meetings, attended, rate).
-     *
-     * @param int $userId
-     * @return \Illuminate\Http\JsonResponse
+     * This is a completely reworked function to guarantee correct counts.
      */
     public function getOverallStats($userId)
     {
-        $stats = DB::table('parcour_group_pivot as p')
-            ->select(
-                DB::raw('COUNT(m.id) AS total_meetings'),
-                DB::raw('COUNT(pm.id) AS attended_meetings')
-            )
+        // STEP 1: Get a definitive, clean list of all class IDs this user is enrolled in.
+        $classIdsCollection = DB::table('parcour_group_pivot as p')
             ->join('parcours_classes as pc', 'p.id_parcour_classes', '=', 'pc.id')
-            ->join('classes as c', DB::raw('FIND_IN_SET(c.id, pc.classes)'), '>', DB::raw('0'))
-            ->join('meetings as m', 'm.id_classe', '=', 'c.id')
-            ->leftJoin('participation_meetings as pm', function ($join) use ($userId) {
-                $join->on('m.id', '=', 'pm.id_meeting')
-                     ->on('p.user_id', '=', 'pm.id_user');
-            })
-            ->where('p.user_id', '=', $userId)
-            ->first();
+            ->where('p.user_id', $userId)
+            ->select('pc.classes') // e.g., "101,102,103"
+            ->get();
+
+        $allClassIds = [];
+        foreach ($classIdsCollection as $item) {
+            $ids = explode(',', $item->classes);
+            $allClassIds = array_merge($allClassIds, $ids);
+        }
+        $uniqueClassIds = array_unique(array_filter($allClassIds));
+
+        // STEP 2: Count all meetings associated with those exact class IDs.
+        // This is the true number of sessions the user was supposed to attend.
+        $total_enrolled_meetings = 0;
+        if (!empty($uniqueClassIds)) {
+            $total_enrolled_meetings = DB::table('meetings')
+                ->whereIn('id_classe', $uniqueClassIds)
+                ->count();
+        }
+
+        // STEP 3: Count how many meetings this user actually has a participation record for.
+        $attended_meetings = DB::table('participation_meetings')
+            ->where('id_user', $userId)
+            // We count distinct meetings to avoid issues if a user has multiple entries for one session.
+            ->count(DB::raw('DISTINCT id_meeting'));
 
         $rate = 0;
-        if ($stats && $stats->total_meetings > 0) {
-            $rate = $stats->attended_meetings / $stats->total_meetings;
+        if ($total_enrolled_meetings > 0) {
+            $rate = $attended_meetings / $total_enrolled_meetings;
         }
 
         return response()->json([
-            'total_enrolled_meetings' => (int)($stats->total_meetings ?? 0),
-            'attended_meetings' => (int)($stats->attended_meetings ?? 0),
+            'total_enrolled_meetings' => $total_enrolled_meetings,
+            'attended_meetings' => $attended_meetings,
             'personal_presence_rate' => $rate
         ]);
     }
 
     /**
      * Get the detailed performance for each meeting a user was enrolled in.
-     *
-     * @param int $userId
-     * @return \Illuminate\Http\JsonResponse
+     * This version is also completely reworked for correctness.
      */
     public function getMeetingPerformance($userId)
     {
-        $results = DB::select("
-            WITH MeetingScheduleLink AS (
-                SELECT
-                    pm.id_meeting,
-                    MAX(pcj.day) AS scheduled_day,
-                    MAX(pcj.heure_from) AS scheduled_hour
-                FROM participation_meetings pm
-                JOIN meetings m ON pm.id_meeting = m.id
-                JOIN planning_cours_journaliers pcj ON m.id_classe = pcj.id_classe AND DATE(pm.entree) = pcj.day
-                GROUP BY pm.id_meeting
+        // Get a clean list of all meeting IDs the user is enrolled in.
+        $enrolledMeetingIds = DB::table('parcour_group_pivot as p')
+            ->join('parcours_classes as pc', 'p.id_parcour_classes', '=', 'pc.id')
+            ->join('classes as c', DB::raw('FIND_IN_SET(c.id, pc.classes)'), '>', DB::raw('0'))
+            ->join('meetings as m', 'm.id_classe', '=', 'c.id')
+            ->where('p.user_id', '=', $userId)
+            ->select('m.id')
+            ->distinct()
+            ->pluck('id');
+
+        if ($enrolledMeetingIds->isEmpty()) {
+            return response()->json([]);
+        }
+
+        // Now, for that clean list of meetings, get their details safely.
+        $results = DB::table('meetings as m')
+            ->whereIn('m.id', $enrolledMeetingIds)
+            ->select(
+                'm.titre_fr AS meeting_title',
+                'm.id_classe AS class_id',
+                DB::raw('(SELECT MAX(pcj.day) FROM planning_cours_journaliers pcj WHERE pcj.id_classe = m.id_classe) as scheduled_day'),
+                DB::raw('(SELECT COUNT(DISTINCT id_user) FROM participation_meetings WHERE id_meeting = m.id) AS total_attended')
             )
-            SELECT
-                m.titre_fr AS meeting_title,
-                msl.scheduled_day,
-                msl.scheduled_hour,
-                (SELECT COUNT(DISTINCT id_user) FROM participation_meetings WHERE id_meeting = m.id) AS total_attended,
-                (SELECT COUNT(DISTINCT p_inner.user_id) FROM parcour_group_pivot p_inner JOIN parcours_classes pc_inner ON p_inner.id_parcour_classes = pc_inner.id WHERE FIND_IN_SET(c.id, pc_inner.classes)) AS total_enrolled
-            FROM parcour_group_pivot p
-            JOIN parcours_classes pc ON p.id_parcour_classes = pc.id
-            JOIN classes c ON FIND_IN_SET(c.id, pc.classes)
-            JOIN meetings m ON m.id_classe = c.id
-            LEFT JOIN MeetingScheduleLink msl ON m.id = msl.id_meeting
-            WHERE p.user_id = ?
-            ORDER BY m.id DESC;
-        ", [$userId]);
+            ->orderBy('scheduled_day', 'DESC')
+            ->orderBy('m.id', 'DESC')
+            ->get();
+        
+        $resultsArray = $results->all();
 
         $processedResults = array_map(function($row) {
+            // Run a separate, clean query to get the total number of students enrolled in this specific class.
+            $total_enrolled = DB::table('parcour_group_pivot as p')
+                ->join('parcours_classes as pc', 'p.id_parcour_classes', '=', 'pc.id')
+                ->whereRaw('FIND_IN_SET(?, pc.classes)', [$row->class_id])
+                ->count(DB::raw('DISTINCT p.user_id'));
+            
             $class_attendance_rate = 0;
-            if ($row->total_enrolled > 0) {
-                $class_attendance_rate = $row->total_attended / $row->total_enrolled;
+            if ($total_enrolled > 0) {
+                // Defensive check: attended count can't be more than enrolled count.
+                $attended = min($row->total_attended, $total_enrolled);
+                $class_attendance_rate = $attended / $total_enrolled;
             }
 
             return [
                 'meeting_title' => $row->meeting_title,
                 'scheduled_day' => $row->scheduled_day ? (new \DateTime($row->scheduled_day))->format('Y-m-d') : 'N/A',
-                'scheduled_time' => $row->scheduled_hour ? substr((string)$row->scheduled_hour, 0, 5) : 'N/A',
-                'attendees_string' => $row->total_attended . ' / ' . $row->total_enrolled,
+                'attendees_string' => $row->total_attended . ' / ' . $total_enrolled,
                 'class_attendance_rate' => $class_attendance_rate
             ];
-        }, $results);
+        }, $resultsArray);
 
         return response()->json($processedResults);
     }

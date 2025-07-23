@@ -5,25 +5,23 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\PredictionController;
 use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\UserAnalyticsController;
+use App\Http\Controllers\Api\DashboardStatsController;
+use App\Http\Controllers\Api\AnalyticsController;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
-*/
+use App\Http\Controllers\Api\ModelController; 
 
-// --- Prediction Endpoints ---
+
+Route::post('/model/retrain', [ModelController::class, 'retrain']);
+
+// --- Existing Core Routes ---
 Route::get('/predict/meeting/{meeting}', [PredictionController::class, 'predictForMeeting'])->where('meeting', '[0-9]+');
-
-// --- Meeting Endpoints ---
 Route::get('/meetings', [MeetingController::class, 'index']);
-
-// --- User Analytics Endpoints ---
 Route::get('/users', [UserAnalyticsController::class, 'index']);
 Route::get('/users/{user}/stats', [UserAnalyticsController::class, 'getOverallStats'])->where('user', '[0-9]+');
 Route::get('/users/{user}/meeting-performance', [UserAnalyticsController::class, 'getMeetingPerformance'])->where('user', '[0-9]+');
+
+
+// --- NEW DASHBOARD & ANALYTICS ROUTES ---
+Route::get('/stats/overview', [DashboardStatsController::class, 'getSystemOverview']);
+Route::get('/analytics/students/at-risk', [AnalyticsController::class, 'getAtRiskStudents']);
+

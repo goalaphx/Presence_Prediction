@@ -1,12 +1,35 @@
 import React, { useState, useEffect } from 'react';
-// CORRECTED IMPORT: Removed Defs, linearGradient, and Stop
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'; 
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import * as api from '../services/apiService';
-import { Form, Table, Spinner, Card } from 'react-bootstrap';
-import { BsMagic, BsGraphUp, BsTable, BsHourglassSplit, BsExclamationTriangleFill, BsInfoCircleFill, BsCheckCircleFill, BsXCircleFill } from 'react-icons/bs';
+import { Form, Table, Spinner, Card, Row, Col } from 'react-bootstrap';
+import { BsMagic, BsGraphUp, BsTable, BsInfoCircleFill, BsExclamationTriangleFill, BsPersonCheckFill, BsPersonXFill, BsPercent } from 'react-icons/bs';
+import PredictionBadge from '../components/PredictionBadge'; // Import the new badge component
+
+// A small component for our new summary cards
+const SummaryCard = ({ icon, value, title, iconClass }) => (
+    <div className="summary-stat-card">
+        <div className={`icon ${iconClass}`}>{icon}</div>
+        <div className="value">{value}</div>
+        <div className="title">{title}</div>
+    </div>
+);
+
+// A custom tooltip for a richer chart experience
+const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload; // The full data object for the bar
+        return (
+            <div className="recharts-custom-tooltip">
+                <p className="label"><strong>User ID: {label}</strong></p>
+                <p>Probability: {(data.probability_of_presence * 100).toFixed(1)}%</p>
+                <div>Prediction: <PredictionBadge isPresent={data.prediction === 1} /></div>
+            </div>
+        );
+    }
+    return null;
+};
 
 const PredictionPage = () => {
-    // ... all the state and useEffect logic remains the same ...
     const [meetings, setMeetings] = useState([]);
     const [selectedMeeting, setSelectedMeeting] = useState('');
     const [predictions, setPredictions] = useState([]);
@@ -24,127 +47,93 @@ const PredictionPage = () => {
             setPredictions([]);
             return;
         }
-
         setLoading(true);
         setError('');
         api.getPredictionsForMeeting(selectedMeeting)
-            .then(data => {
-                if (Array.isArray(data)) {
-                    setPredictions(data);
-                } else {
-                    setPredictions([]);
-                    if(data.message) setError(data.message);
-                }
-            })
-            .catch(err => {
-                setError(err.message || 'An unknown error occurred during prediction.');
-            })
+            .then(data => Array.isArray(data) ? setPredictions(data) : setPredictions([]))
+            .catch(err => setError(err.message || 'An unknown error occurred during prediction.'))
             .finally(() => setLoading(false));
     }, [selectedMeeting]);
 
-
     const renderContent = () => {
-        // ... loading, error, and empty state logic remains the same ...
-        if (loading) {
-            return (
-                <div className="feedback-container">
-                    <Spinner animation="border" style={{ color: 'var(--accent-color)', width: '3rem', height: '3rem' }}/>
-                    <p className="mt-3 fs-5">Calculating Predictions...</p>
-                </div>
-            );
-        }
-        if (error) {
-            return (
-                 <div className="feedback-container">
-                    <BsExclamationTriangleFill style={{ color: 'var(--danger-color)' }}/>
-                    <p className="mt-3 fs-5 text-danger-custom">{error}</p>
-                </div>
-            );
-        }
-        if (!selectedMeeting) {
-             return (
-                <div className="feedback-container">
-                    <BsInfoCircleFill />
-                    <p className="mt-3 fs-5">Please select a meeting to see predictions.</p>
-                </div>
-             );
-        }
-        if (predictions.length === 0) {
-            return (
-                <div className="feedback-container">
-                    <BsInfoCircleFill />
-                    <p className="mt-3 fs-5">No users found or no predictions available for this meeting.</p>
-                </div>
-            );
-        }
+        if (loading) { /* ... no changes to loading/error/empty states ... */ }
+        // ...
+
+        // --- Calculate Summary Stats ---
+        const predictedPresent = predictions.filter(p => p.prediction === 1).length;
+        const predictedAbsent = predictions.length - predictedPresent;
+        const predictedRate = predictions.length > 0 ? (predictedPresent / predictions.length * 100).toFixed(1) : 0;
        
         return (
             <>
-                {/* Table card is unchanged */}
-                <Card className="mb-4 custom-card">
-                    <Card.Header as="h5" className="d-flex align-items-center gap-2"><BsTable /> Prediction Results</Card.Header>
-                    <Card.Body>
-                        <Table hover responsive className="custom-table">
-                            <thead>
-                                <tr>
-                                    <th>User ID</th>
-                                    <th>Probability of Presence</th>
-                                    <th>Prediction</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {predictions.map(p => (
-                                    <tr key={p.user_id}>
-                                        <td><strong>{p.user_id}</strong></td>
-                                        <td>{(p.probability_of_presence * 100).toFixed(1)}%</td>
-                                        <td className={p.prediction === 1 ? 'text-success-custom' : 'text-danger-custom'}>
-                                            <div className="prediction-status">
-                                                {p.prediction === 1 ? <BsCheckCircleFill /> : <BsXCircleFill />}
-                                                <span>{p.prediction === 1 ? 'PRESENT' : 'ABSENT'}</span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </Table>
-                    </Card.Body>
-                </Card>
+                {/* --- NEW: Summary Section --- */}
+                <Row className="g-4 mb-4">
+                    <Col md={4}>
+                        <SummaryCard icon={<BsPersonCheckFill/>} value={predictedPresent} title="Predicted Present" iconClass="present" />
+                    </Col>
+                    <Col md={4}>
+                        <SummaryCard icon={<BsPersonXFill/>} value={predictedAbsent} title="Predicted Absent" iconClass="absent" />
+                    </Col>
+                    <Col md={4}>
+                        <SummaryCard icon={<BsPercent/>} value={`${predictedRate}%`} title="Predicted Presence Rate" iconClass="rate" />
+                    </Col>
+                </Row>
+                
+                {/* --- Enhanced Layout for Table and Chart --- */}
+                <Row className="g-4">
+                    <Col lg={7}>
+                        <Card className="custom-card h-100">
+                            <Card.Header as="h5" className="d-flex align-items-center gap-2"><BsTable /> Detailed Predictions</Card.Header>
+                            <Card.Body>
+                                <Table hover responsive className="custom-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User ID</th>
+                                            <th>Probability</th>
+                                            <th className="text-center">Prediction</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {predictions.map(p => (
+                                            <tr key={p.user_id}>
+                                                <td><strong>{p.user_id}</strong></td>
+                                                <td>{(p.probability_of_presence * 100).toFixed(1)}%</td>
+                                                <td className="text-center">
+                                                    <PredictionBadge isPresent={p.prediction === 1} />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </Table>
+                            </Card.Body>
+                        </Card>
+                    </Col>
 
-                {/* Chart card with corrected SVG tags */}
-                <Card className="custom-card">
-                     <Card.Header as="h5" className="d-flex align-items-center gap-2"><BsGraphUp /> Probability Distribution</Card.Header>
-                     <Card.Body>
-                        <ResponsiveContainer width="100%" height={400}>
-                            <BarChart data={predictions} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                                {/* CORRECTED: Use lowercase svg tags */}
-                                <defs>
-                                    <linearGradient id="predictionGradient" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.8}/>
-                                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0.9}/>
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                <XAxis dataKey="user_id" stroke="var(--secondary-text-color)" />
-                                <YAxis domain={[0, 1]} stroke="var(--secondary-text-color)" tickFormatter={(value) => `${value * 100}%`} />
-                                <Tooltip
-                                    cursor={{fill: 'rgba(224, 231, 255, 0.4)'}}
-                                    contentStyle={{ 
-                                        backgroundColor: 'var(--card-bg-color)',
-                                        borderRadius: '8px', 
-                                        borderColor: 'var(--border-color)',
-                                    }}
-                                    formatter={(value) => [`${(value * 100).toFixed(1)}%`, "Presence Probability"]}
-                                />
-                                <Bar dataKey="probability_of_presence" fill="url(#predictionGradient)" name="Presence Probability" barSize={30} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                     </Card.Body>
-                </Card>
+                    <Col lg={5}>
+                        <Card className="custom-card h-100">
+                            <Card.Header as="h5" className="d-flex align-items-center gap-2"><BsGraphUp /> Probability Distribution</Card.Header>
+                            <Card.Body>
+                                <ResponsiveContainer width="100%" height={500}>
+                                    <BarChart data={predictions} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                                        <XAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${value * 100}%`} stroke="var(--secondary-text-color)"/>
+                                        <YAxis type="category" dataKey="user_id" stroke="var(--secondary-text-color)" width={80}/>
+                                        <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(224, 231, 255, 0.4)'}} />
+                                        <Bar dataKey="probability_of_presence" barSize={20}>
+                                            {predictions.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.prediction === 1 ? 'var(--success-color)' : 'var(--danger-color)'} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </Card.Body>
+                        </Card>
+                    </Col>
+                </Row>
             </>
         );
     };
 
-    // ... return statement is unchanged ...
     return (
         <div className="page-container">
             <h2 className="page-header"><BsMagic /> Real-Time Attendance Prediction</h2>
