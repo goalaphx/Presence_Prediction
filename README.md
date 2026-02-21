@@ -101,5 +101,5 @@ The main API endpoints defined in `routes/api.php` are:
 ### Machine Learning Model
 
 1.  Navigate to the `pred_train` directory.
-2.  Run `pip install -r requirements.txt` (assuming a `requirements.txt` file exists with `pandas` and `scikit-learn`).
+2.  Run `pip install -r requirements.txt`
 3.  Run `python train_model.py` to train the model and generate the `attendance_model.pkl` file. Ensure this file is accessible by the Laravel backend.
