@@ -1,0 +1,19 @@
+# --- AI Engine Dependencies ---
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database Connection (To pull data from Laravel's DB)
+mysql-connector-python>=8.0.0
+
+# Machine Learning Logic
+scikit-learn>=1.2.0
+
+# Serialization
+# Pickle is standard, but joblib is often used with Scikit-Learn
+joblib>=1.3.0
+
+# --- Deployment (Optional but Recommended) ---
+# If you plan to ever wrap the script in an API
+fastapi>=0.100.0
+uvicorn>=0.23.0
